@@ -1,22 +1,47 @@
 #!/bin/bash
 # review-work — independent self-review via Claude CLI
-# Usage: review-work <file_path> "<task_description>"
+# Usage: review-work <file_path> "<task_description>" [--skill <skill_file>]
 #
 # Sends a file to a separate Claude instance for quality review.
 # Returns issues with severity (critical/major/minor) and a PASS/FAIL verdict.
 # Auto-logs issues to LESSONS.md when the review fails.
+#
+# When --skill is provided, the reviewer uses the skill's requirements to
+# generate a definition of done and checks the work against it.
 
 set -e
 
 MAX_FILE_SIZE=102400  # 100KB — truncate beyond this to control token costs
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
-FILE="$1"
-TASK="${2:-No task description provided}"
+# Parse arguments
+FILE=""
+TASK="No task description provided"
+SKILL_FILE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skill)
+      SKILL_FILE="$2"
+      shift 2
+      ;;
+    *)
+      if [ -z "$FILE" ]; then
+        FILE="$1"
+      else
+        TASK="$1"
+      fi
+      shift
+      ;;
+  esac
+done
 
 if [ -z "$FILE" ]; then
-  echo "Usage: review-work <file_path> \"<task_description>\""
-  echo "Example: review-work /tmp/prime.py \"Write a prime checker function\""
+  echo "Usage: review-work <file_path> \"<task_description>\" [--skill <skill_file>]"
+  echo ""
+  echo "Examples:"
+  echo "  review-work /tmp/prime.py \"Write a prime checker function\""
+  echo "  review-work /tmp/blog.md \"Write an SEO blog\" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md"
   exit 1
 fi
 
@@ -48,6 +73,27 @@ else
   TRUNCATED_NOTE=""
 fi
 
+# Load skill context if provided
+SKILL_CONTEXT=""
+if [ -n "$SKILL_FILE" ]; then
+  if [ -f "$SKILL_FILE" ]; then
+    SKILL_CONTENT=$(cat "$SKILL_FILE")
+    SKILL_CONTEXT="
+## Skill Requirements
+
+The work was produced using the following skill. Use its requirements, output format, and quality standards as your definition of done. Check EVERY requirement from this skill — a missing requirement is a major issue.
+
+<skill>
+${SKILL_CONTENT}
+</skill>
+
+Based on the skill above, generate a verification checklist and check each item against the actual output.
+"
+  else
+    echo "Warning: Skill file not found: $SKILL_FILE (continuing without skill context)"
+  fi
+fi
+
 # Run the review and capture output
 REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
 
@@ -56,7 +102,7 @@ REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a co
 3. **Quality** — Is it well-structured, readable, and following best practices?
 4. **Errors** — Are there syntax errors, typos, broken links, or formatting issues?
 5. **Missed requirements** — Is anything from the task description missing or incomplete?
-
+${SKILL_CONTEXT}
 List every issue found with severity:
 - **critical** — Blocks correctness or usability. Must fix.
 - **major** — Significant quality or completeness gap. Should fix.

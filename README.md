@@ -54,26 +54,37 @@ chmod +x /usr/local/bin/review-work
 ## Usage
 
 ```bash
-review-work <file_path> "<task_description>"
+review-work <file_path> "<task_description>" [--skill <skill_file>]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `file_path` | Yes | Path to the file to review |
 | `task_description` | No | What the file was supposed to accomplish |
+| `--skill <path>` | No | SKILL.md used for the task — reviewer checks against its requirements |
 
 ### Examples
 
 ```bash
-# Review a Python script
+# Basic review
 review-work /tmp/email.py "Write a Python email validator"
 
-# Review a blog post
-review-work /tmp/blog.md "Write a 1500-word SEO blog about class action lawsuits"
+# Review with skill context — reviewer verifies against skill requirements
+review-work /tmp/blog.md "Write an SEO blog" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md
 
 # Review without task description (still works, less context for reviewer)
 review-work /tmp/output.csv
 ```
+
+### Skill-Aware Review
+
+When `--skill` is passed, the reviewer reads the skill's full requirements and generates a verification checklist. For example, with the seo-content-writer skill, the reviewer checks:
+- Is the primary keyword in the title, H1, first 100 words?
+- Is the meta description 150-160 chars?
+- Are there 5+ FAQ questions with 40-80 word answers?
+- Does it follow CORE-EEAT standards?
+
+Without `--skill`, the review is generic (accuracy, completeness, quality).
 
 ### Sample Output
 
@@ -99,6 +110,7 @@ VERDICT: FAIL — 1 critical, 1 major, 1 minor
 - **Structured output** — issues categorized by severity with a clear PASS/FAIL verdict
 - **Claude CLI check** — clear error message if `claude` is not installed
 - **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md` (see below)
+- **Skill-aware review** — pass `--skill` to review against a skill's specific requirements and definition of done
 
 ## Auto-Learnings
 

@@ -3,7 +3,7 @@ name: claude-review
 description: "Self-review quality gate using Claude CLI. When the user says 'review your work', 'use review-work', or 'check your output', identify every file you created or modified and run `review-work <file> \"<task>\"` on each one. You determine file paths and task description yourself — the user does NOT need to specify them. Requires `claude` CLI installed."
 license: MIT
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   tags:
     - quality
     - review
@@ -45,13 +45,16 @@ The reviewer is a **separate Claude instance** — it has no context of your con
 ## Command
 
 ```bash
-review-work <file_path> "<task_description>"
+review-work <file_path> "<task_description>" [--skill <skill_file>]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `file_path` | Yes | Path to the file to review |
-| `task_description` | No | What the file was supposed to accomplish (defaults to "No task description provided") |
+| `task_description` | No | What the file was supposed to accomplish |
+| `--skill <path>` | No | Path to the SKILL.md that was used for this task. The reviewer will use its requirements as a definition of done and verify each one. |
+
+**Important:** If a skill was involved in producing the work, always pass `--skill`. This gives the reviewer the full context of what the output should look like, what format to follow, and what quality standards apply. Without it, the review is generic.
 
 The script handles file size limits automatically — files over 100KB are truncated with a warning to keep token costs reasonable.
 
@@ -68,23 +71,23 @@ When instructed to review your work (or when you should review before finishing)
 
 ## Examples
 
-Single file — you wrote a Python script:
+Basic review (no skill):
 
 ```bash
 review-work /tmp/email.py "Write a Python email validator"
 ```
 
-Single file — you wrote a report:
+Review with skill context (reviewer checks against skill requirements):
 
 ```bash
-review-work /tmp/report.md "Research top 5 AI frameworks and write a summary"
+review-work /tmp/blog.md "Write an SEO blog about class action lawsuits" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md
 ```
 
-Multiple files — review each one:
+Multiple files with skill:
 
 ```bash
-review-work /tmp/scraper.py "Build a web scraper for product prices"
-review-work /tmp/results.csv "Build a web scraper for product prices"
+review-work /tmp/scraper.py "Build a web scraper" --skill ~/.openclaw/workspace/skills/data-scraper/SKILL.md
+review-work /tmp/results.csv "Build a web scraper" --skill ~/.openclaw/workspace/skills/data-scraper/SKILL.md
 ```
 
 ## Rules
