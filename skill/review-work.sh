@@ -122,6 +122,17 @@ if [ ! -e "$CONTEXT_PATH" ]; then
   exit 1
 fi
 
+# Resolve skill name to path if not a valid file/folder
+# Accepts: "seo-content-writer", "seo-content-writer/SKILL.md", or full path
+SKILLS_DIR="${SKILLS_DIR:-$HOME/.openclaw/workspace/skills}"
+if [ -n "$SKILL_PATH" ] && [ ! -e "$SKILL_PATH" ]; then
+  if [ -f "$SKILLS_DIR/$SKILL_PATH/SKILL.md" ]; then
+    SKILL_PATH="$SKILLS_DIR/$SKILL_PATH"
+  elif [ -f "$SKILLS_DIR/$SKILL_PATH" ]; then
+    SKILL_PATH="$SKILLS_DIR/$SKILL_PATH"
+  fi
+fi
+
 # Check if claude CLI is available
 if ! command -v claude &> /dev/null; then
   echo "Error: claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
