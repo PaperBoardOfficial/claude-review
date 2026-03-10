@@ -144,6 +144,7 @@ trap 'rm -f "$STDERR_LOG"' EXIT
 
 set +e
 REVIEW_OUTPUT=$(claude --print \
+  --model sonnet \
   --dangerously-skip-permissions \
   --tools "Read,Glob,Grep" \
   --no-session-persistence \
