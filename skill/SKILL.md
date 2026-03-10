@@ -35,7 +35,7 @@ Uses Claude CLI (`claude --print`) as an independent reviewer to catch errors, m
 
 The reviewer is a **separate Claude instance** — it has no context of your conversation, so it reviews purely on merit. This catches blind spots you'd miss reviewing your own work.
 
-**Auto-learning:** When a review fails (VERDICT: FAIL), critical and major issues are automatically logged to `.learnings.md`. This builds a persistent record of common mistakes so you can avoid repeating them. Check this file before starting tasks in areas you've worked before.
+**Auto-learning:** When a review fails (VERDICT: FAIL), critical and major issues are automatically logged to `LESSONS.md`. This builds a persistent record of common mistakes so you can avoid repeating them. Check this file before starting tasks in areas you've worked before.
 
 ## Prerequisites
 
@@ -104,14 +104,14 @@ review-work /tmp/results.csv "Build a web scraper for product prices"
 
 ## Learnings File
 
-Failed reviews are auto-logged to `.learnings.md` (default: `~/.openclaw/workspace/.learnings.md`). Override the path with the `LEARNINGS_FILE` environment variable:
+Failed reviews are auto-logged to `LESSONS.md` (default: `~/.openclaw/workspace/LESSONS.md`). Override the path with the `LESSONS_FILE` environment variable:
 
 ```bash
-LEARNINGS_FILE=/path/to/.learnings.md review-work /tmp/script.py "task"
+LESSONS_FILE=/path/to/LESSONS.md review-work /tmp/script.py "task"
 ```
 
 Each entry records the file, task, verdict, and critical/major issues. Before starting work in an area with past failures, scan the file:
 
 ```bash
-cat ~/.openclaw/workspace/.learnings.md
+cat ~/.openclaw/workspace/LESSONS.md
 ```

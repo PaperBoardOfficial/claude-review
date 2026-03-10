@@ -4,12 +4,12 @@
 #
 # Sends a file to a separate Claude instance for quality review.
 # Returns issues with severity (critical/major/minor) and a PASS/FAIL verdict.
-# Auto-logs issues to .learnings.md when the review fails.
+# Auto-logs issues to LESSONS.md when the review fails.
 
 set -e
 
 MAX_FILE_SIZE=102400  # 100KB — truncate beyond this to control token costs
-LEARNINGS_FILE="${LEARNINGS_FILE:-$HOME/.openclaw/workspace/.learnings.md}"
+LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
 FILE="$1"
 TASK="${2:-No task description provided}"
@@ -79,7 +79,7 @@ VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues 
 # Print the review output
 echo "$REVIEW_OUTPUT"
 
-# Auto-log to .learnings.md if the review failed
+# Auto-log to LESSONS.md if the review failed
 if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   VERDICT_LINE=$(echo "$REVIEW_OUTPUT" | grep "VERDICT: FAIL" | tail -1)
   DATE=$(date +%Y-%m-%d)
@@ -92,11 +92,11 @@ if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   fi
 
   # Create learnings directory if needed
-  LEARNINGS_DIR=$(dirname "$LEARNINGS_FILE")
-  mkdir -p "$LEARNINGS_DIR"
+  LESSONS_DIR=$(dirname "$LESSONS_FILE")
+  mkdir -p "$LESSONS_DIR"
 
   # Append learning entry
-  cat >> "$LEARNINGS_FILE" << EOF
+  cat >> "$LESSONS_FILE" << EOF
 
 ### [$DATE] REVIEW-FAIL: $(basename "$FILE")
 

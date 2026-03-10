@@ -98,17 +98,17 @@ VERDICT: FAIL — 1 critical, 1 major, 1 minor
 - **Binary file detection** — automatically skips binary files
 - **Structured output** — issues categorized by severity with a clear PASS/FAIL verdict
 - **Claude CLI check** — clear error message if `claude` is not installed
-- **Auto-learnings** — failed reviews are automatically logged to `.learnings.md` (see below)
+- **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md` (see below)
 
 ## Auto-Learnings
 
 When a review fails (VERDICT: FAIL), critical and major issues are automatically appended to a learnings file. This builds a persistent record of common mistakes across tasks.
 
-Default path: `~/.openclaw/workspace/.learnings.md`
+Default path: `~/.openclaw/workspace/LESSONS.md`
 
 Override with:
 ```bash
-LEARNINGS_FILE=/path/to/.learnings.md review-work /tmp/script.py "task"
+LESSONS_FILE=/path/to/LESSONS.md review-work /tmp/script.py "task"
 ```
 
 Example entry auto-logged:
