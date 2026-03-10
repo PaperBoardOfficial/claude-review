@@ -3,7 +3,7 @@ name: claude-review
 description: "Self-review quality gate using Claude CLI. When the user says 'review your work', 'use review-work', or 'check your output', run review-work with the task summary, --context pointing to your output file/folder, and --skill pointing to the skill used (if any). You determine all arguments yourself — the user does NOT need to specify them. Requires `claude` CLI installed."
 license: MIT
 metadata:
-  version: "2.0.0"
+  version: "3.0.0"
   tags:
     - quality
     - review
@@ -58,7 +58,7 @@ review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder
 **Auto-included (no flag needed):**
 - `LESSONS.md` — if it exists, always included so the reviewer checks for repeat mistakes
 
-All paths accept both files and folders. Folders are read recursively (text files only, binaries skipped).
+All paths accept both files and folders. Claude reads all file types natively (text, images, PDFs, code).
 
 ## Workflow
 

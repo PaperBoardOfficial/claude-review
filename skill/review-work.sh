@@ -104,13 +104,13 @@ fi
 SKILL_INSTRUCTION=""
 if [ -n "$SKILL_PATH" ] && [ -e "$SKILL_PATH" ]; then
   SKILL_INSTRUCTION="
-6. **Skill compliance** — Read the skill definition at \`$SKILL_PATH\` (read all files if it's a folder). Use its requirements, output format, and quality standards as your definition of done. Generate a verification checklist from the skill and check each item against the actual work. A missing requirement is a major issue."
+   - **Skill compliance** — Read the skill definition at \`$SKILL_PATH\` (read all files if it's a folder). Use its requirements, output format, and quality standards as your definition of done. Generate a verification checklist from the skill and check each item against the actual work. A missing requirement is a major issue."
 fi
 
 LESSONS_INSTRUCTION=""
 if [ -f "$LESSONS_FILE" ]; then
   LESSONS_INSTRUCTION="
-7. **Repeat mistakes** — Read \`$LESSONS_FILE\`. Check if any past mistakes listed there are present in this work."
+   - **Repeat mistakes** — Read \`$LESSONS_FILE\`. Check if any past mistakes listed there are present in this work."
 fi
 
 REVIEW_PROMPT="You are a code and content reviewer.
@@ -140,13 +140,14 @@ Review the work at \`$CONTEXT_PATH\` for quality issues.
 
 # Run the review
 set +e
-REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>&1)
+REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>/tmp/review-work-stderr.log)
 CLAUDE_EXIT=$?
 set -e
 
 if [ "$CLAUDE_EXIT" -ne 0 ] || [ -z "$REVIEW_OUTPUT" ]; then
   echo "Error: claude --print failed (exit code $CLAUDE_EXIT)."
   [ -n "$REVIEW_OUTPUT" ] && echo "$REVIEW_OUTPUT"
+  [ -f /tmp/review-work-stderr.log ] && cat /tmp/review-work-stderr.log
   echo "Check your API key and network connection. Test with: claude --print 'hello'"
   exit 1
 fi
