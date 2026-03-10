@@ -103,51 +103,52 @@ if ! command -v claude &> /dev/null; then
   exit 1
 fi
 
-# --- Build review prompt ---
+# --- Build prompts ---
 
-SKILL_INSTRUCTION=""
-if [ -n "$SKILL_PATH" ] && [ -e "$SKILL_PATH" ]; then
-  SKILL_INSTRUCTION="
-   - **Skill compliance** — Read the skill definition at \`$SKILL_PATH\` (read all files if it's a folder). Use its requirements, output format, and quality standards as your definition of done. Generate a verification checklist from the skill and check each item against the actual work. A missing requirement is a major issue."
-fi
+# System prompt: static reviewer instructions (appended to Claude's defaults)
+SYSTEM_PROMPT="You are a code and content reviewer. You can ONLY read files — never edit, write, or execute anything.
 
-LESSONS_INSTRUCTION=""
-if [ -f "$LESSONS_FILE" ]; then
-  LESSONS_INSTRUCTION="
-   - **Repeat mistakes** — Read \`$LESSONS_FILE\`. Check if any past mistakes listed there are present in this work."
-fi
-
-REVIEW_PROMPT="You are a code and content reviewer.
-
-## Task
-Review the work at \`$CONTEXT_PATH\` for quality issues.
-
-**Original task:** ${TASK}
-
-## Instructions
-1. Read ALL files at \`$CONTEXT_PATH\`. If it's a folder, read every file in it (skip node_modules, .git, __pycache__, dist, build, .next, vendor, venv, .cache directories). For images, view them. For PDFs, read them.
-2. Review the work for:
-   - **Accuracy** — Are there factual errors, bugs, or incorrect logic?
-   - **Completeness** — Does it fulfill all requirements of the original task?
-   - **Quality** — Is it well-structured, readable, and following best practices?
-   - **Errors** — Are there syntax errors, typos, broken links, or formatting issues?
-   - **Missed requirements** — Is anything from the task description missing or incomplete?${SKILL_INSTRUCTION}${LESSONS_INSTRUCTION}
-
-3. List every issue found with severity:
+## How to review
+1. Read ALL files at the given path. If it's a folder, read every file in it (skip node_modules, .git, __pycache__, dist, build, .next, vendor, venv, .cache directories). For images, view them. For PDFs, read them.
+2. Review for: accuracy, completeness, quality, errors, and missed requirements.
+3. If a skill definition is provided, use its requirements as the definition of done. Generate a verification checklist and check each item. A missing requirement is a major issue.
+4. If a lessons file is provided, check if any past mistakes are repeated.
+5. List every issue with severity:
    - **critical** — Blocks correctness or usability. Must fix.
    - **major** — Significant quality or completeness gap. Should fix.
    - **minor** — Style, polish, or optional improvement. Nice to fix.
-
-4. End your review with a verdict line in exactly this format:
+6. End with a verdict line in exactly this format:
    VERDICT: PASS (if zero critical and zero major issues)
    VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
 
-# Run the review
+# User prompt: task-specific info
+USER_PROMPT="Review the work at \`$CONTEXT_PATH\`.
+
+**Original task:** ${TASK}"
+
+if [ -n "$SKILL_PATH" ] && [ -e "$SKILL_PATH" ]; then
+  USER_PROMPT="${USER_PROMPT}
+
+**Skill definition:** \`$SKILL_PATH\` — read this and verify the work meets every requirement."
+fi
+
+if [ -f "$LESSONS_FILE" ]; then
+  USER_PROMPT="${USER_PROMPT}
+
+**Past mistakes:** \`$LESSONS_FILE\` — read this and check for repeat mistakes."
+fi
+
+# Run the review (read-only tools, no session persistence)
 STDERR_LOG=$(mktemp /tmp/review-work-stderr.XXXXXX)
 trap 'rm -f "$STDERR_LOG"' EXIT
 
 set +e
-REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>"$STDERR_LOG")
+REVIEW_OUTPUT=$(claude --print \
+  --dangerously-skip-permissions \
+  --tools "Read,Glob,Grep" \
+  --no-session-persistence \
+  --append-system-prompt "$SYSTEM_PROMPT" \
+  "$USER_PROMPT" 2>"$STDERR_LOG")
 CLAUDE_EXIT=$?
 set -e
 
