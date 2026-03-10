@@ -4,7 +4,7 @@ Self-review quality gate for [OpenClaw](https://github.com/openclaw/openclaw) ag
 
 ## How It Works
 
-When an agent finishes a task, it runs `review-work` on every file it created or modified. The script sends the file to a **separate Claude instance** for independent review — the reviewer has no context of the original conversation, so it evaluates purely on merit.
+When an agent finishes a task, it runs `review-work` on its output. The script sends the work to a **separate Claude instance** for independent review — the reviewer has no context of the original conversation, so it evaluates purely on merit.
 
 ```
 Agent writes code → review-work sends to Claude CLI → gets issues back → fixes → re-reviews → delivers
@@ -21,12 +21,10 @@ The reviewer returns issues rated by severity (critical / major / minor) and a c
 
 ### As an OpenClaw Skill
 
-Copy both files into your agent's skills directory:
-
 ```bash
 mkdir -p ~/.openclaw/workspace/skills/claude-review
-cp SKILL.md ~/.openclaw/workspace/skills/claude-review/
-cp review-work.sh /usr/local/bin/review-work
+cp skill/SKILL.md ~/.openclaw/workspace/skills/claude-review/
+cp skill/review-work.sh /usr/local/bin/review-work
 chmod +x /usr/local/bin/review-work
 ```
 
@@ -44,36 +42,39 @@ Enable in your `openclaw.json`:
 
 ### Standalone
 
-Just install the script:
-
 ```bash
-cp review-work.sh /usr/local/bin/review-work
+cp skill/review-work.sh /usr/local/bin/review-work
 chmod +x /usr/local/bin/review-work
 ```
 
 ## Usage
 
 ```bash
-review-work <file_path> "<task_description>" [--skill <skill_file>]
+review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder>]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `file_path` | Yes | Path to the file to review |
-| `task_description` | No | What the file was supposed to accomplish |
-| `--skill <path>` | No | SKILL.md used for the task — reviewer checks against its requirements |
+| `task_summary` | Yes | What the work was supposed to accomplish |
+| `--context <path>` | Yes | File or folder to review (work output, reference material, test logs — anything relevant) |
+| `--skill <path>` | No | SKILL.md or skill folder used for the task — reviewer checks against its requirements |
+
+All paths accept files or folders. Folders are read recursively (text files only, binaries auto-skipped).
 
 ### Examples
 
 ```bash
 # Basic review
-review-work /tmp/email.py "Write a Python email validator"
+review-work "Write a Python email validator" --context /tmp/email.py
 
-# Review with skill context — reviewer verifies against skill requirements
-review-work /tmp/blog.md "Write an SEO blog" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md
+# Review with skill — reviewer verifies against skill's specific requirements
+review-work "Write an SEO blog" --context /tmp/blog.md --skill ~/skills/seo-content-writer/SKILL.md
 
-# Review without task description (still works, less context for reviewer)
-review-work /tmp/output.csv
+# Review an entire project folder
+review-work "Build a todo app" --context /tmp/todo-app/ --skill ~/skills/fullstack/
+
+# Review without task description
+review-work "general review" --context /tmp/output.csv
 ```
 
 ### Skill-Aware Review
@@ -89,46 +90,47 @@ Without `--skill`, the review is generic (accuracy, completeness, quality).
 ### Sample Output
 
 ```
-## Review: email.py
+## Review: blog.md
 
-### Critical Issues
-1. **No input validation** — `validate_email()` accepts None without raising an error.
+### Verification Checklist (from seo-content-writer skill)
+- [x] Primary keyword in title
+- [x] Meta description 150-160 chars
+- [ ] FAQ section with 5+ questions — only 3 found
+- [x] Table of contents with anchor links
 
 ### Major Issues
-2. **Regex doesn't handle edge cases** — consecutive dots in local part are accepted.
+1. **FAQ section incomplete** — Only 3 questions, skill requires minimum 5.
 
 ### Minor Issues
-3. **Missing docstring** — function lacks a description of parameters and return value.
+2. **Meta description is 148 chars** — Slightly under the 150 minimum.
 
-VERDICT: FAIL — 1 critical, 1 major, 1 minor
+VERDICT: FAIL — 0 critical, 1 major, 1 minor
 ```
 
 ## Features
 
-- **File size guard** — files over 100KB are truncated with a warning to control token costs
-- **Binary file detection** — automatically skips binary files
-- **Structured output** — issues categorized by severity with a clear PASS/FAIL verdict
-- **Claude CLI check** — clear error message if `claude` is not installed
-- **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md` (see below)
+- **File & folder support** — review a single file or an entire project directory
 - **Skill-aware review** — pass `--skill` to review against a skill's specific requirements and definition of done
+- **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md`
+- **Repeat mistake detection** — auto-includes `LESSONS.md` in every review so the reviewer checks for past mistakes
+- **File size guard** — content over 100KB is truncated with a warning to control token costs
+- **Binary file detection** — automatically skips binary files in folders
 
-## Auto-Learnings
+## LESSONS.md
 
-When a review fails (VERDICT: FAIL), critical and major issues are automatically appended to a learnings file. This builds a persistent record of common mistakes across tasks.
+Failed reviews are auto-logged to `LESSONS.md` (default: `~/.openclaw/workspace/LESSONS.md`). This file is also auto-read on every future review, so the reviewer checks for repeat mistakes — no extra flags needed.
 
-Default path: `~/.openclaw/workspace/LESSONS.md`
-
-Override with:
+Override the path with:
 ```bash
-LESSONS_FILE=/path/to/LESSONS.md review-work /tmp/script.py "task"
+LESSONS_FILE=/path/to/LESSONS.md review-work "task" --context /tmp/output
 ```
 
-Example entry auto-logged:
+Example auto-logged entry:
 ```markdown
 ### [2026-03-10] REVIEW-FAIL: email.py
 
 TASK: Write a Python email validator
-FILE: /tmp/email.py
+CONTEXT: /tmp/email.py
 VERDICT: VERDICT: FAIL — 1 critical, 1 major, 1 minor
 ISSUES:
 1. **critical** — validate_email() accepts None without raising an error
@@ -137,19 +139,17 @@ ISSUES:
 ---
 ```
 
-The agent can read this file before starting new tasks to avoid repeating past mistakes.
-
 ## Agent Integration
 
 When used as an OpenClaw skill, the agent automatically:
 
 1. Identifies every file it created or modified
-2. Runs `review-work` on each file
+2. Runs `review-work` with the task summary, `--context` pointing to output, and `--skill` if a skill was used
 3. Fixes any critical or major issues
 4. Re-reviews after fixing (up to 3 cycles)
 5. Reports the review summary in its final output
 
-The user just needs to say "review your work" or "use review-work" — the agent determines file paths and task descriptions on its own.
+The user just needs to say "review your work" or "use review-work" — the agent determines all arguments on its own.
 
 ## License
 

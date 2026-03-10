@@ -1,52 +1,124 @@
 #!/bin/bash
 # review-work — independent self-review via Claude CLI
-# Usage: review-work <file_path> "<task_description>" [--skill <skill_file>]
+# Usage: review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder>]
 #
-# Sends a file to a separate Claude instance for quality review.
+# Sends work to a separate Claude instance for quality review.
 # Returns issues with severity (critical/major/minor) and a PASS/FAIL verdict.
 # Auto-logs issues to LESSONS.md when the review fails.
-#
-# When --skill is provided, the reviewer uses the skill's requirements to
-# generate a definition of done and checks the work against it.
+# Auto-includes LESSONS.md (if it exists) so the reviewer checks for repeat mistakes.
 
 set -e
 
-MAX_FILE_SIZE=102400  # 100KB — truncate beyond this to control token costs
+MAX_TOTAL_SIZE=102400  # 100KB total — truncate beyond this to control token costs
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
-# Parse arguments
-FILE=""
-TASK="No task description provided"
-SKILL_FILE=""
+# --- Helpers ---
+
+read_path() {
+  # Reads a file or all text files in a folder, returns concatenated content with headers
+  local target="$1"
+  local label="$2"
+
+  if [ -f "$target" ]; then
+    if file --mime-encoding "$target" | grep -q "binary"; then
+      echo "[Skipped binary file: $target]"
+    else
+      echo "=== $label: $target ==="
+      cat "$target"
+      echo ""
+    fi
+  elif [ -d "$target" ]; then
+    local found=0
+    while IFS= read -r -d '' f; do
+      if file --mime-encoding "$f" | grep -q "binary"; then
+        continue
+      fi
+      echo "=== $label: $f ==="
+      cat "$f"
+      echo ""
+      found=$((found + 1))
+    done < <(find "$target" -type f -not -name '.*' -print0 | sort -z)
+    if [ "$found" -eq 0 ]; then
+      echo "[No text files found in: $target]"
+    fi
+  else
+    echo "[Not found: $target]"
+  fi
+}
+
+truncate_content() {
+  local content="$1"
+  local max_size="$2"
+  local size=${#content}
+  if [ "$size" -gt "$max_size" ]; then
+    echo "${content:0:$max_size}"
+    echo ""
+    echo "[WARNING: Content truncated from ${size} to ${max_size} bytes to control token costs.]"
+  else
+    echo "$content"
+  fi
+}
+
+# --- Parse arguments ---
+
+TASK=""
+CONTEXT_PATH=""
+SKILL_PATH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skill)
-      SKILL_FILE="$2"
+    --context)
+      CONTEXT_PATH="$2"
       shift 2
       ;;
+    --skill)
+      SKILL_PATH="$2"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: review-work \"<task_summary>\" --context <file_or_folder> [--skill <file_or_folder>]"
+      echo ""
+      echo "Arguments:"
+      echo "  task_summary          What the work was supposed to accomplish"
+      echo "  --context <path>      File or folder to review (required)"
+      echo "  --skill <path>        SKILL.md or skill folder used for the task (optional)"
+      echo ""
+      echo "Examples:"
+      echo "  review-work \"Write a Python email validator\" --context /tmp/email.py"
+      echo "  review-work \"Write an SEO blog\" --context /tmp/blog.md --skill ~/skills/seo-content-writer/SKILL.md"
+      echo "  review-work \"Build a todo app\" --context /tmp/my-app/ --skill ~/skills/fullstack/SKILL.md"
+      echo ""
+      echo "Environment:"
+      echo "  LESSONS_FILE    Path to lessons file (default: ~/.openclaw/workspace/LESSONS.md)"
+      exit 0
+      ;;
     *)
-      if [ -z "$FILE" ]; then
-        FILE="$1"
-      else
+      if [ -z "$TASK" ]; then
         TASK="$1"
+      else
+        echo "Error: Unexpected argument: $1"
+        echo "Usage: review-work \"<task_summary>\" --context <file_or_folder> [--skill <file_or_folder>]"
+        exit 1
       fi
       shift
       ;;
   esac
 done
 
-if [ -z "$FILE" ]; then
-  echo "Usage: review-work <file_path> \"<task_description>\" [--skill <skill_file>]"
-  echo ""
-  echo "Examples:"
-  echo "  review-work /tmp/prime.py \"Write a prime checker function\""
-  echo "  review-work /tmp/blog.md \"Write an SEO blog\" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md"
+if [ -z "$TASK" ]; then
+  echo "Error: Task summary is required."
+  echo "Usage: review-work \"<task_summary>\" --context <file_or_folder> [--skill <file_or_folder>]"
   exit 1
 fi
 
-if [ ! -f "$FILE" ]; then
-  echo "Error: File not found: $FILE"
+if [ -z "$CONTEXT_PATH" ]; then
+  echo "Error: --context is required."
+  echo "Usage: review-work \"<task_summary>\" --context <file_or_folder> [--skill <file_or_folder>]"
+  exit 1
+fi
+
+if [ ! -e "$CONTEXT_PATH" ]; then
+  echo "Error: Context path not found: $CONTEXT_PATH"
   exit 1
 fi
 
@@ -56,43 +128,54 @@ if ! command -v claude &> /dev/null; then
   exit 1
 fi
 
-# Skip binary files
-if file --mime-encoding "$FILE" | grep -q "binary"; then
-  echo "Skipping binary file: $FILE"
-  echo "review-work only reviews text-based files."
-  exit 0
-fi
+# --- Build review prompt ---
 
-# Read file with size guard
-FILE_SIZE=$(wc -c < "$FILE")
-if [ "$FILE_SIZE" -gt "$MAX_FILE_SIZE" ]; then
-  CONTENT=$(head -c "$MAX_FILE_SIZE" "$FILE")
-  TRUNCATED_NOTE="[WARNING: File truncated from ${FILE_SIZE} bytes to ${MAX_FILE_SIZE} bytes for review. Some content at the end was not reviewed.]"
-else
-  CONTENT=$(cat "$FILE")
-  TRUNCATED_NOTE=""
-fi
+# Read work to review
+WORK_CONTENT=$(read_path "$CONTEXT_PATH" "WORK")
 
-# Load skill context if provided
-SKILL_CONTEXT=""
-if [ -n "$SKILL_FILE" ]; then
-  if [ -f "$SKILL_FILE" ]; then
-    SKILL_CONTENT=$(cat "$SKILL_FILE")
-    SKILL_CONTEXT="
+# Read skill requirements if provided
+SKILL_SECTION=""
+if [ -n "$SKILL_PATH" ]; then
+  if [ -e "$SKILL_PATH" ]; then
+    SKILL_CONTENT=$(read_path "$SKILL_PATH" "SKILL")
+    SKILL_SECTION="
 ## Skill Requirements
 
-The work was produced using the following skill. Use its requirements, output format, and quality standards as your definition of done. Check EVERY requirement from this skill — a missing requirement is a major issue.
+The work was produced using the following skill. Use its requirements, output format, and quality standards as your definition of done. Check EVERY requirement — a missing requirement is a major issue.
 
 <skill>
 ${SKILL_CONTENT}
 </skill>
 
-Based on the skill above, generate a verification checklist and check each item against the actual output.
+Generate a verification checklist from the skill above and check each item against the actual work.
 "
   else
-    echo "Warning: Skill file not found: $SKILL_FILE (continuing without skill context)"
+    echo "Warning: Skill path not found: $SKILL_PATH (continuing without skill context)"
   fi
 fi
+
+# Auto-include LESSONS.md if it exists
+LESSONS_SECTION=""
+if [ -f "$LESSONS_FILE" ]; then
+  LESSONS_CONTENT=$(cat "$LESSONS_FILE")
+  if [ -n "$LESSONS_CONTENT" ]; then
+    LESSONS_SECTION="
+## Past Mistakes (LESSONS.md)
+
+The following issues were found in previous reviews. Check if any of the same mistakes are present in this work.
+
+<lessons>
+${LESSONS_CONTENT}
+</lessons>
+"
+  fi
+fi
+
+# Assemble full prompt
+FULL_CONTENT="${WORK_CONTENT}${SKILL_SECTION}${LESSONS_SECTION}"
+
+# Apply size guard
+FULL_CONTENT=$(truncate_content "$FULL_CONTENT" "$MAX_TOTAL_SIZE")
 
 # Run the review and capture output
 REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
@@ -102,19 +185,17 @@ REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a co
 3. **Quality** — Is it well-structured, readable, and following best practices?
 4. **Errors** — Are there syntax errors, typos, broken links, or formatting issues?
 5. **Missed requirements** — Is anything from the task description missing or incomplete?
-${SKILL_CONTEXT}
+${SKILL_SECTION:+6. **Skill compliance** — Does it meet every requirement from the skill definition?}
+${LESSONS_SECTION:+7. **Repeat mistakes** — Are any past mistakes from LESSONS.md present in this work?}
+
 List every issue found with severity:
 - **critical** — Blocks correctness or usability. Must fix.
 - **major** — Significant quality or completeness gap. Should fix.
 - **minor** — Style, polish, or optional improvement. Nice to fix.
 
-${TRUNCATED_NOTE}
-
 Original task: ${TASK}
 
-File: ${FILE}
-Content:
-${CONTENT}
+${FULL_CONTENT}
 
 ---
 
@@ -133,21 +214,20 @@ if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   # Extract critical and major issues (skip minor)
   ISSUES=$(echo "$REVIEW_OUTPUT" | grep -E "^\*?\*?(critical|major)\*?\*?" | head -10)
   if [ -z "$ISSUES" ]; then
-    # Fallback: grab lines containing "critical" or "major" (case-insensitive)
     ISSUES=$(echo "$REVIEW_OUTPUT" | grep -i "critical\|major" | grep -v "VERDICT" | head -10)
   fi
 
-  # Create learnings directory if needed
+  # Create directory if needed
   LESSONS_DIR=$(dirname "$LESSONS_FILE")
   mkdir -p "$LESSONS_DIR"
 
   # Append learning entry
   cat >> "$LESSONS_FILE" << EOF
 
-### [$DATE] REVIEW-FAIL: $(basename "$FILE")
+### [$DATE] REVIEW-FAIL: $(basename "$CONTEXT_PATH")
 
 TASK: $TASK
-FILE: $FILE
+CONTEXT: $CONTEXT_PATH
 VERDICT: $VERDICT_LINE
 ISSUES:
 $ISSUES

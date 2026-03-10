@@ -1,9 +1,9 @@
 ---
 name: claude-review
-description: "Self-review quality gate using Claude CLI. When the user says 'review your work', 'use review-work', or 'check your output', identify every file you created or modified and run `review-work <file> \"<task>\"` on each one. You determine file paths and task description yourself — the user does NOT need to specify them. Requires `claude` CLI installed."
+description: "Self-review quality gate using Claude CLI. When the user says 'review your work', 'use review-work', or 'check your output', run review-work with the task summary, --context pointing to your output file/folder, and --skill pointing to the skill used (if any). You determine all arguments yourself — the user does NOT need to specify them. Requires `claude` CLI installed."
 license: MIT
 metadata:
-  version: "1.2.0"
+  version: "2.0.0"
   tags:
     - quality
     - review
@@ -28,14 +28,15 @@ Uses Claude CLI (`claude --print`) as an independent reviewer to catch errors, m
 ## How It Works
 
 1. You complete your task and save output to file(s)
-2. `review-work` sends each file to a separate Claude instance for independent review
-3. The reviewer checks for accuracy, completeness, quality, and missed requirements
-4. Issues are returned with severity ratings (critical / major / minor)
-5. You fix issues and re-review until clean
+2. `review-work` sends your work to a separate Claude instance for independent review
+3. If a skill was used, the reviewer checks against the skill's specific requirements
+4. If LESSONS.md exists, the reviewer checks for repeat mistakes
+5. Issues are returned with severity ratings (critical / major / minor) and a PASS/FAIL verdict
+6. You fix issues and re-review until clean
 
-The reviewer is a **separate Claude instance** — it has no context of your conversation, so it reviews purely on merit. This catches blind spots you'd miss reviewing your own work.
+The reviewer is a **separate Claude instance** — it has no context of your conversation, so it reviews purely on merit.
 
-**Auto-learning:** When a review fails (VERDICT: FAIL), critical and major issues are automatically logged to `LESSONS.md`. This builds a persistent record of common mistakes so you can avoid repeating them. Check this file before starting tasks in areas you've worked before.
+**Auto-learning:** When a review fails, critical and major issues are automatically logged to `LESSONS.md`. This file is auto-included in future reviews so the reviewer checks for repeat mistakes.
 
 ## Prerequisites
 
@@ -45,76 +46,76 @@ The reviewer is a **separate Claude instance** — it has no context of your con
 ## Command
 
 ```bash
-review-work <file_path> "<task_description>" [--skill <skill_file>]
+review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder>]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `file_path` | Yes | Path to the file to review |
-| `task_description` | No | What the file was supposed to accomplish |
-| `--skill <path>` | No | Path to the SKILL.md that was used for this task. The reviewer will use its requirements as a definition of done and verify each one. |
+| `task_summary` | Yes | What the work was supposed to accomplish |
+| `--context <path>` | Yes | File or folder containing the work to review. Can also include reference material, test output, or anything relevant. |
+| `--skill <path>` | No | SKILL.md or skill folder used for this task. The reviewer uses its requirements as a definition of done. |
 
-**Important:** If a skill was involved in producing the work, always pass `--skill`. This gives the reviewer the full context of what the output should look like, what format to follow, and what quality standards apply. Without it, the review is generic.
+**Auto-included (no flag needed):**
+- `LESSONS.md` — if it exists, always included so the reviewer checks for repeat mistakes
 
-The script handles file size limits automatically — files over 100KB are truncated with a warning to keep token costs reasonable.
+All paths accept both files and folders. Folders are read recursively (text files only, binaries skipped).
 
 ## Workflow
 
-When instructed to review your work (or when you should review before finishing):
+When instructed to review your work:
 
-1. **Identify** every file you created or modified during the task
-2. **Run** `review-work <file_path> "<what you were asked to do>"` on each file
-3. **Read** the review output — look for the verdict at the bottom (PASS / FAIL)
-4. **Fix** any critical or major issues found
-5. **Re-run** `review-work` after fixing to confirm (up to 3 cycles)
+1. **Identify** every file you created or modified
+2. **Run** `review-work` with the task summary, `--context` pointing to your output, and `--skill` if a skill was used
+3. **Read** the review output — look for VERDICT: PASS or FAIL
+4. **Fix** any critical or major issues
+5. **Re-run** `review-work` after fixing (up to 3 cycles)
 6. **Report** the review summary in your final output
 
 ## Examples
 
-Basic review (no skill):
+Review a single file:
 
 ```bash
-review-work /tmp/email.py "Write a Python email validator"
+review-work "Write a Python email validator" --context /tmp/email.py
 ```
 
-Review with skill context (reviewer checks against skill requirements):
+Review with skill context (reviewer verifies against skill requirements):
 
 ```bash
-review-work /tmp/blog.md "Write an SEO blog about class action lawsuits" --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md
+review-work "Write an SEO blog about class action lawsuits" --context /tmp/blog.md --skill ~/.openclaw/workspace/skills/seo-content-writer/SKILL.md
 ```
 
-Multiple files with skill:
+Review an entire project folder:
 
 ```bash
-review-work /tmp/scraper.py "Build a web scraper" --skill ~/.openclaw/workspace/skills/data-scraper/SKILL.md
-review-work /tmp/results.csv "Build a web scraper" --skill ~/.openclaw/workspace/skills/data-scraper/SKILL.md
+review-work "Build a todo app with React" --context /tmp/todo-app/ --skill ~/skills/fullstack/SKILL.md
+```
+
+Review with extra context (reference articles, test output, etc.):
+
+```bash
+# Put your output + reference material in one folder
+review-work "Write a blog matching MoneyPilot tone" --context /tmp/blog-project/
 ```
 
 ## Rules
 
 1. Review **every** file you created or modified — not just the main one
-2. If the review reports critical or major issues → fix them → re-review (up to 3 cycles)
-3. Only finish after the verdict is **PASS** (zero critical/major issues)
-4. Include the review summary in your final output
-5. After 3 failed cycles, finish but attach the full review report
+2. If a skill was used for the task, always pass `--skill`
+3. If the review reports critical or major issues → fix them → re-review (up to 3 cycles)
+4. Only finish after the verdict is **PASS** (zero critical/major issues)
+5. Include the review summary in your final output
+6. After 3 failed cycles, finish but attach the full review report
 
 ## What NOT to Do
 
-- Do NOT ask the user for file paths — you already know what files you created
+- Do NOT ask the user for arguments — you already know what you created and which skill you used
 - Do NOT say "review passed" without actually running the command
 - Do NOT fabricate review results — the command produces real output
-- Do NOT skip binary files silently — the script auto-detects and skips them
+- Do NOT forget `--skill` when a skill was involved in the task
 
-## Learnings File
+## LESSONS.md
 
-Failed reviews are auto-logged to `LESSONS.md` (default: `~/.openclaw/workspace/LESSONS.md`). Override the path with the `LESSONS_FILE` environment variable:
+Failed reviews are auto-logged to `LESSONS.md` (default: `~/.openclaw/workspace/LESSONS.md`). Override the path with the `LESSONS_FILE` environment variable.
 
-```bash
-LESSONS_FILE=/path/to/LESSONS.md review-work /tmp/script.py "task"
-```
-
-Each entry records the file, task, verdict, and critical/major issues. Before starting work in an area with past failures, scan the file:
-
-```bash
-cat ~/.openclaw/workspace/LESSONS.md
-```
+This file is also auto-read on every review, so the reviewer checks: "are any past mistakes being repeated?"
