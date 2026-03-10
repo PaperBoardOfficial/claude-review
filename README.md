@@ -59,7 +59,7 @@ review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder
 | `--context <path>` | Yes | File or folder to review (work output, reference material, test logs — anything relevant) |
 | `--skill <path>` | No | SKILL.md or skill folder used for the task — reviewer checks against its requirements |
 
-All paths accept files or folders. Folders are read recursively (text files only, binaries auto-skipped).
+All paths accept files or folders. Claude reads all files itself using its built-in tools — including images, PDFs, and text files. Common junk directories (node_modules, .git, __pycache__, dist, build, etc.) are automatically skipped.
 
 ### Examples
 
@@ -110,10 +110,10 @@ VERDICT: FAIL — 0 critical, 1 major, 1 minor
 ## Features
 
 - **File & folder support** — review a single file or an entire project directory
+- **Images & PDFs** — Claude reads all file types natively (images, PDFs, text, code)
 - **Skill-aware review** — pass `--skill` to review against a skill's specific requirements and definition of done
 - **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md`
 - **Repeat mistake detection** — auto-includes `LESSONS.md` in every review so the reviewer checks for past mistakes
-- **Binary file detection** — automatically skips binary files in folders
 
 ## LESSONS.md
 

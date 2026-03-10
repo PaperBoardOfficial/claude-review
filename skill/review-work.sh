@@ -3,6 +3,7 @@
 # Usage: review-work "<task_summary>" --context <file_or_folder> [--skill <file_or_folder>]
 #
 # Sends work to a separate Claude instance for quality review.
+# Claude reads all files itself (including images and PDFs) using its own tools.
 # Returns issues with severity (critical/major/minor) and a PASS/FAIL verdict.
 # Auto-logs issues to LESSONS.md when the review fails.
 # Auto-includes LESSONS.md (if it exists) so the reviewer checks for repeat mistakes.
@@ -10,51 +11,6 @@
 set -eo pipefail
 
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
-
-# --- Helpers ---
-
-read_path() {
-  # Reads a file or all text files in a folder, returns concatenated content with headers
-  local target="$1"
-  local label="$2"
-
-  if [ -f "$target" ]; then
-    if file --mime-encoding "$target" | grep -q "binary"; then
-      echo "[Skipped binary file: $target]"
-    else
-      echo "=== $label: $target ==="
-      cat "$target"
-      echo ""
-    fi
-  elif [ -d "$target" ]; then
-    local found=0
-    while IFS= read -r -d '' f; do
-      if file --mime-encoding "$f" | grep -q "binary"; then
-        continue
-      fi
-      echo "=== $label: $f ==="
-      cat "$f"
-      echo ""
-      found=$((found + 1))
-    done < <(find "$target" -type f -not -name '.*' \
-      -not -path '*/.git/*' \
-      -not -path '*/node_modules/*' \
-      -not -path '*/__pycache__/*' \
-      -not -path '*/dist/*' \
-      -not -path '*/build/*' \
-      -not -path '*/.next/*' \
-      -not -path '*/vendor/*' \
-      -not -path '*/.venv/*' \
-      -not -path '*/venv/*' \
-      -not -path '*/.cache/*' \
-      -print0 | sort -z)
-    if [ "$found" -eq 0 ]; then
-      echo "[No text files found in: $target]"
-    fi
-  else
-    echo "[Not found: $target]"
-  fi
-}
 
 # --- Parse arguments ---
 
@@ -114,6 +70,9 @@ if [ -z "$CONTEXT_PATH" ]; then
   exit 1
 fi
 
+# Resolve to absolute path
+CONTEXT_PATH=$(realpath "$CONTEXT_PATH" 2>/dev/null || echo "$CONTEXT_PATH")
+
 if [ ! -e "$CONTEXT_PATH" ]; then
   echo "Error: Context path not found: $CONTEXT_PATH"
   exit 1
@@ -130,6 +89,10 @@ if [ -n "$SKILL_PATH" ] && [ ! -e "$SKILL_PATH" ]; then
   fi
 fi
 
+if [ -n "$SKILL_PATH" ]; then
+  SKILL_PATH=$(realpath "$SKILL_PATH" 2>/dev/null || echo "$SKILL_PATH")
+fi
+
 # Check if claude CLI is available
 if ! command -v claude &> /dev/null; then
   echo "Error: claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
@@ -138,79 +101,46 @@ fi
 
 # --- Build review prompt ---
 
-# Read work to review
-WORK_CONTENT=$(read_path "$CONTEXT_PATH" "WORK")
-
-# Read skill requirements if provided
-SKILL_SECTION=""
-if [ -n "$SKILL_PATH" ]; then
-  if [ -e "$SKILL_PATH" ]; then
-    SKILL_CONTENT=$(read_path "$SKILL_PATH" "SKILL")
-    SKILL_SECTION="
-## Skill Requirements
-
-The work was produced using the following skill. Use its requirements, output format, and quality standards as your definition of done. Check EVERY requirement — a missing requirement is a major issue.
-
-<skill>
-${SKILL_CONTENT}
-</skill>
-
-Generate a verification checklist from the skill above and check each item against the actual work.
-"
-  else
-    echo "Warning: Skill path not found: $SKILL_PATH (continuing without skill context)"
-  fi
+SKILL_INSTRUCTION=""
+if [ -n "$SKILL_PATH" ] && [ -e "$SKILL_PATH" ]; then
+  SKILL_INSTRUCTION="
+6. **Skill compliance** — Read the skill definition at \`$SKILL_PATH\` (read all files if it's a folder). Use its requirements, output format, and quality standards as your definition of done. Generate a verification checklist from the skill and check each item against the actual work. A missing requirement is a major issue."
 fi
 
-# Auto-include LESSONS.md if it exists
-LESSONS_SECTION=""
+LESSONS_INSTRUCTION=""
 if [ -f "$LESSONS_FILE" ]; then
-  LESSONS_CONTENT=$(cat "$LESSONS_FILE")
-  if [ -n "$LESSONS_CONTENT" ]; then
-    LESSONS_SECTION="
-## Past Mistakes (LESSONS.md)
-
-The following issues were found in previous reviews. Check if any of the same mistakes are present in this work.
-
-<lessons>
-${LESSONS_CONTENT}
-</lessons>
-"
-  fi
+  LESSONS_INSTRUCTION="
+7. **Repeat mistakes** — Read \`$LESSONS_FILE\`. Check if any past mistakes listed there are present in this work."
 fi
 
-# Assemble full prompt
-FULL_CONTENT="${WORK_CONTENT}${SKILL_SECTION}${LESSONS_SECTION}"
+REVIEW_PROMPT="You are a code and content reviewer.
 
-# Build the review prompt
-REVIEW_PROMPT="You are a code and content reviewer. Review the following work for:
+## Task
+Review the work at \`$CONTEXT_PATH\` for quality issues.
 
-1. **Accuracy** — Are there factual errors, bugs, or incorrect logic?
-2. **Completeness** — Does it fulfill all requirements of the original task?
-3. **Quality** — Is it well-structured, readable, and following best practices?
-4. **Errors** — Are there syntax errors, typos, broken links, or formatting issues?
-5. **Missed requirements** — Is anything from the task description missing or incomplete?
-${SKILL_SECTION:+6. **Skill compliance** — Does it meet every requirement from the skill definition?}
-${LESSONS_SECTION:+7. **Repeat mistakes** — Are any past mistakes from LESSONS.md present in this work?}
+**Original task:** ${TASK}
 
-List every issue found with severity:
-- **critical** — Blocks correctness or usability. Must fix.
-- **major** — Significant quality or completeness gap. Should fix.
-- **minor** — Style, polish, or optional improvement. Nice to fix.
+## Instructions
+1. Read ALL files at \`$CONTEXT_PATH\`. If it's a folder, read every file in it (skip node_modules, .git, __pycache__, dist, build, .next, vendor, venv, .cache directories). For images, view them. For PDFs, read them.
+2. Review the work for:
+   - **Accuracy** — Are there factual errors, bugs, or incorrect logic?
+   - **Completeness** — Does it fulfill all requirements of the original task?
+   - **Quality** — Is it well-structured, readable, and following best practices?
+   - **Errors** — Are there syntax errors, typos, broken links, or formatting issues?
+   - **Missed requirements** — Is anything from the task description missing or incomplete?${SKILL_INSTRUCTION}${LESSONS_INSTRUCTION}
 
-Original task: ${TASK}
+3. List every issue found with severity:
+   - **critical** — Blocks correctness or usability. Must fix.
+   - **major** — Significant quality or completeness gap. Should fix.
+   - **minor** — Style, polish, or optional improvement. Nice to fix.
 
-${FULL_CONTENT}
-
----
-
-End your review with a verdict line in exactly this format:
-VERDICT: PASS (if zero critical and zero major issues)
-VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
+4. End your review with a verdict line in exactly this format:
+   VERDICT: PASS (if zero critical and zero major issues)
+   VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
 
 # Run the review
 set +e
-REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "$REVIEW_PROMPT" 2>&1)
+REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>&1)
 CLAUDE_EXIT=$?
 set -e
 
@@ -230,7 +160,6 @@ if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   DATE=$(date +%Y-%m-%d)
 
   # Extract critical and major issues (skip minor)
-  # Match common Claude review formats: "- **critical**", "1. **critical**", "**critical:**", etc.
   ISSUES=$(echo "$REVIEW_OUTPUT" | grep -iE '(critical|major)\b' | grep -v 'VERDICT' | grep -v '0 critical' | grep -v '0 major' | head -10)
 
   # Create directory if needed
