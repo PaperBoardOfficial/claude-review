@@ -9,7 +9,7 @@
 
 set -e
 
-MAX_TOTAL_SIZE=102400  # 100KB total — truncate beyond this to control token costs
+MAX_TOTAL_SIZE=204800  # 200KB total — truncate beyond this to control token costs
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
 # --- Helpers ---
