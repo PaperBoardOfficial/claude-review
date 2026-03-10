@@ -91,6 +91,10 @@ fi
 
 if [ -n "$SKILL_PATH" ]; then
   SKILL_PATH=$(realpath "$SKILL_PATH" 2>/dev/null || echo "$SKILL_PATH")
+  if [ ! -e "$SKILL_PATH" ]; then
+    echo "Warning: Skill path not found: $SKILL_PATH (continuing without skill context)"
+    SKILL_PATH=""
+  fi
 fi
 
 # Check if claude CLI is available
@@ -139,15 +143,18 @@ Review the work at \`$CONTEXT_PATH\` for quality issues.
    VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
 
 # Run the review
+STDERR_LOG=$(mktemp /tmp/review-work-stderr.XXXXXX)
+trap 'rm -f "$STDERR_LOG"' EXIT
+
 set +e
-REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>/tmp/review-work-stderr.log)
+REVIEW_OUTPUT=$(claude --print --dangerously-skip-permissions "$REVIEW_PROMPT" 2>"$STDERR_LOG")
 CLAUDE_EXIT=$?
 set -e
 
 if [ "$CLAUDE_EXIT" -ne 0 ] || [ -z "$REVIEW_OUTPUT" ]; then
   echo "Error: claude --print failed (exit code $CLAUDE_EXIT)."
   [ -n "$REVIEW_OUTPUT" ] && echo "$REVIEW_OUTPUT"
-  [ -f /tmp/review-work-stderr.log ] && cat /tmp/review-work-stderr.log
+  [ -s "$STDERR_LOG" ] && cat "$STDERR_LOG"
   echo "Check your API key and network connection. Test with: claude --print 'hello'"
   exit 1
 fi
@@ -167,17 +174,17 @@ if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   LESSONS_DIR=$(dirname "$LESSONS_FILE")
   mkdir -p "$LESSONS_DIR"
 
-  # Append learning entry
-  cat >> "$LESSONS_FILE" << EOF
-
-### [$DATE] REVIEW-FAIL: $(basename "$CONTEXT_PATH")
-
-TASK: $TASK
-CONTEXT: $CONTEXT_PATH
-VERDICT: $VERDICT_LINE
-ISSUES:
-$ISSUES
-
----
-EOF
+  # Append learning entry (quoted heredoc prevents command injection from backticks in variables)
+  {
+    echo ""
+    echo "### [$DATE] REVIEW-FAIL: $(basename "$CONTEXT_PATH")"
+    echo ""
+    printf 'TASK: %s\n' "$TASK"
+    printf 'CONTEXT: %s\n' "$CONTEXT_PATH"
+    printf '%s\n' "$VERDICT_LINE"
+    echo "ISSUES:"
+    printf '%s\n' "$ISSUES"
+    echo ""
+    echo "---"
+  } >> "$LESSONS_FILE"
 fi

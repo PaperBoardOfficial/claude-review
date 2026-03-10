@@ -130,7 +130,7 @@ Example auto-logged entry:
 
 TASK: Write a Python email validator
 CONTEXT: /tmp/email.py
-VERDICT: VERDICT: FAIL — 1 critical, 1 major, 1 minor
+VERDICT: FAIL — 1 critical, 1 major, 1 minor
 ISSUES:
 1. **critical** — validate_email() accepts None without raising an error
 2. **major** — Regex doesn't handle consecutive dots in local part
