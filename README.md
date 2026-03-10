@@ -113,7 +113,6 @@ VERDICT: FAIL — 0 critical, 1 major, 1 minor
 - **Skill-aware review** — pass `--skill` to review against a skill's specific requirements and definition of done
 - **Auto-learnings** — failed reviews are automatically logged to `LESSONS.md`
 - **Repeat mistake detection** — auto-includes `LESSONS.md` in every review so the reviewer checks for past mistakes
-- **File size guard** — content over 200KB is truncated with a warning to control token costs
 - **Binary file detection** — automatically skips binary files in folders
 
 ## LESSONS.md

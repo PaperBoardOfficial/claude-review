@@ -9,7 +9,6 @@
 
 set -e
 
-MAX_TOTAL_SIZE=204800  # 200KB total — truncate beyond this to control token costs
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
 # --- Helpers ---
@@ -43,19 +42,6 @@ read_path() {
     fi
   else
     echo "[Not found: $target]"
-  fi
-}
-
-truncate_content() {
-  local content="$1"
-  local max_size="$2"
-  local size=${#content}
-  if [ "$size" -gt "$max_size" ]; then
-    echo "${content:0:$max_size}"
-    echo ""
-    echo "[WARNING: Content truncated from ${size} to ${max_size} bytes to control token costs.]"
-  else
-    echo "$content"
   fi
 }
 
@@ -184,9 +170,6 @@ fi
 
 # Assemble full prompt
 FULL_CONTENT="${WORK_CONTENT}${SKILL_SECTION}${LESSONS_SECTION}"
-
-# Apply size guard
-FULL_CONTENT=$(truncate_content "$FULL_CONTENT" "$MAX_TOTAL_SIZE")
 
 # Run the review and capture output
 REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
