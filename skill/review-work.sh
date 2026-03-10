@@ -7,7 +7,7 @@
 # Auto-logs issues to LESSONS.md when the review fails.
 # Auto-includes LESSONS.md (if it exists) so the reviewer checks for repeat mistakes.
 
-set -e
+set -eo pipefail
 
 LESSONS_FILE="${LESSONS_FILE:-$HOME/.openclaw/workspace/LESSONS.md}"
 
@@ -36,7 +36,18 @@ read_path() {
       cat "$f"
       echo ""
       found=$((found + 1))
-    done < <(find "$target" -type f -not -name '.*' -print0 | sort -z)
+    done < <(find "$target" -type f -not -name '.*' \
+      -not -path '*/.git/*' \
+      -not -path '*/node_modules/*' \
+      -not -path '*/__pycache__/*' \
+      -not -path '*/dist/*' \
+      -not -path '*/build/*' \
+      -not -path '*/.next/*' \
+      -not -path '*/vendor/*' \
+      -not -path '*/.venv/*' \
+      -not -path '*/venv/*' \
+      -not -path '*/.cache/*' \
+      -print0 | sort -z)
     if [ "$found" -eq 0 ]; then
       echo "[No text files found in: $target]"
     fi
@@ -171,8 +182,8 @@ fi
 # Assemble full prompt
 FULL_CONTENT="${WORK_CONTENT}${SKILL_SECTION}${LESSONS_SECTION}"
 
-# Run the review and capture output
-REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
+# Build the review prompt
+REVIEW_PROMPT="You are a code and content reviewer. Review the following work for:
 
 1. **Accuracy** — Are there factual errors, bugs, or incorrect logic?
 2. **Completeness** — Does it fulfill all requirements of the original task?
@@ -195,7 +206,20 @@ ${FULL_CONTENT}
 
 End your review with a verdict line in exactly this format:
 VERDICT: PASS (if zero critical and zero major issues)
-VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)")
+VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
+
+# Run the review
+set +e
+REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "$REVIEW_PROMPT" 2>&1)
+CLAUDE_EXIT=$?
+set -e
+
+if [ "$CLAUDE_EXIT" -ne 0 ] || [ -z "$REVIEW_OUTPUT" ]; then
+  echo "Error: claude --print failed (exit code $CLAUDE_EXIT)."
+  [ -n "$REVIEW_OUTPUT" ] && echo "$REVIEW_OUTPUT"
+  echo "Check your API key and network connection. Test with: claude --print 'hello'"
+  exit 1
+fi
 
 # Print the review output
 echo "$REVIEW_OUTPUT"
@@ -206,10 +230,8 @@ if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
   DATE=$(date +%Y-%m-%d)
 
   # Extract critical and major issues (skip minor)
-  ISSUES=$(echo "$REVIEW_OUTPUT" | grep -E "^\*?\*?(critical|major)\*?\*?" | head -10)
-  if [ -z "$ISSUES" ]; then
-    ISSUES=$(echo "$REVIEW_OUTPUT" | grep -i "critical\|major" | grep -v "VERDICT" | head -10)
-  fi
+  # Match common Claude review formats: "- **critical**", "1. **critical**", "**critical:**", etc.
+  ISSUES=$(echo "$REVIEW_OUTPUT" | grep -iE '(critical|major)\b' | grep -v 'VERDICT' | grep -v '0 critical' | grep -v '0 major' | head -10)
 
   # Create directory if needed
   LESSONS_DIR=$(dirname "$LESSONS_FILE")
