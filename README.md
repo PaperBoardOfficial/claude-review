@@ -113,4 +113,4 @@ The user just needs to say "review your work" or "use review-work" — the agent
 
 ## License
 
-Apache-2.0
+MIT

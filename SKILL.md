@@ -1,7 +1,7 @@
 ---
 name: claude-review
 description: "Self-review quality gate using Claude CLI. When the user says 'review your work', 'use review-work', or 'check your output', identify every file you created or modified and run `review-work <file> \"<task>\"` on each one. You determine file paths and task description yourself — the user does NOT need to specify them. Requires `claude` CLI installed."
-license: Apache-2.0
+license: MIT
 metadata:
   version: "1.0.0"
   tags:
