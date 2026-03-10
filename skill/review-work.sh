@@ -4,10 +4,12 @@
 #
 # Sends a file to a separate Claude instance for quality review.
 # Returns issues with severity (critical/major/minor) and a PASS/FAIL verdict.
+# Auto-logs issues to .learnings.md when the review fails.
 
 set -e
 
 MAX_FILE_SIZE=102400  # 100KB — truncate beyond this to control token costs
+LEARNINGS_FILE="${LEARNINGS_FILE:-$HOME/.openclaw/workspace/.learnings.md}"
 
 FILE="$1"
 TASK="${2:-No task description provided}"
@@ -46,7 +48,8 @@ else
   TRUNCATED_NOTE=""
 fi
 
-claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
+# Run the review and capture output
+REVIEW_OUTPUT=$(claude --print --permission-mode bypassPermissions "You are a code and content reviewer. Review the following work for:
 
 1. **Accuracy** — Are there factual errors, bugs, or incorrect logic?
 2. **Completeness** — Does it fulfill all requirements of the original task?
@@ -71,4 +74,38 @@ ${CONTENT}
 
 End your review with a verdict line in exactly this format:
 VERDICT: PASS (if zero critical and zero major issues)
-VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)"
+VERDICT: FAIL — X critical, Y major, Z minor (if any critical or major issues exist)")
+
+# Print the review output
+echo "$REVIEW_OUTPUT"
+
+# Auto-log to .learnings.md if the review failed
+if echo "$REVIEW_OUTPUT" | grep -q "VERDICT: FAIL"; then
+  VERDICT_LINE=$(echo "$REVIEW_OUTPUT" | grep "VERDICT: FAIL" | tail -1)
+  DATE=$(date +%Y-%m-%d)
+
+  # Extract critical and major issues (skip minor)
+  ISSUES=$(echo "$REVIEW_OUTPUT" | grep -E "^\*?\*?(critical|major)\*?\*?" | head -10)
+  if [ -z "$ISSUES" ]; then
+    # Fallback: grab lines containing "critical" or "major" (case-insensitive)
+    ISSUES=$(echo "$REVIEW_OUTPUT" | grep -i "critical\|major" | grep -v "VERDICT" | head -10)
+  fi
+
+  # Create learnings directory if needed
+  LEARNINGS_DIR=$(dirname "$LEARNINGS_FILE")
+  mkdir -p "$LEARNINGS_DIR"
+
+  # Append learning entry
+  cat >> "$LEARNINGS_FILE" << EOF
+
+### [$DATE] REVIEW-FAIL: $(basename "$FILE")
+
+TASK: $TASK
+FILE: $FILE
+VERDICT: $VERDICT_LINE
+ISSUES:
+$ISSUES
+
+---
+EOF
+fi

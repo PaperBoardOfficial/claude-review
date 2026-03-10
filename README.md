@@ -98,6 +98,34 @@ VERDICT: FAIL — 1 critical, 1 major, 1 minor
 - **Binary file detection** — automatically skips binary files
 - **Structured output** — issues categorized by severity with a clear PASS/FAIL verdict
 - **Claude CLI check** — clear error message if `claude` is not installed
+- **Auto-learnings** — failed reviews are automatically logged to `.learnings.md` (see below)
+
+## Auto-Learnings
+
+When a review fails (VERDICT: FAIL), critical and major issues are automatically appended to a learnings file. This builds a persistent record of common mistakes across tasks.
+
+Default path: `~/.openclaw/workspace/.learnings.md`
+
+Override with:
+```bash
+LEARNINGS_FILE=/path/to/.learnings.md review-work /tmp/script.py "task"
+```
+
+Example entry auto-logged:
+```markdown
+### [2026-03-10] REVIEW-FAIL: email.py
+
+TASK: Write a Python email validator
+FILE: /tmp/email.py
+VERDICT: VERDICT: FAIL — 1 critical, 1 major, 1 minor
+ISSUES:
+1. **critical** — validate_email() accepts None without raising an error
+2. **major** — Regex doesn't handle consecutive dots in local part
+
+---
+```
+
+The agent can read this file before starting new tasks to avoid repeating past mistakes.
 
 ## Agent Integration
 
